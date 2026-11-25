@@ -21,6 +21,8 @@ export default function App() {
   const [status, setStatus] = useState("all");
   const [category, setCategory] = useState("all");
   const [sort, setSort] = useState({ key: "updatedAt", dir: "desc" });
+  const [page, setPage] = useState(1);
+  const [size, setSize] = useState(10);
   const [editing, setEditing] = useState(null); // null | "new" | item
   const [confirm, setConfirm] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -43,6 +45,7 @@ export default function App() {
     const t = setTimeout(() => setToast(""), 3000);
     return () => clearTimeout(t);
   }, [toast]);
+  useEffect(() => { setPage(1); }, [query, status, category, sort, size]);
 
   const counts = useMemo(() => {
     const c = { all: items.length, ok: 0, low: 0, out: 0 };
@@ -67,6 +70,11 @@ export default function App() {
       return sort.dir === "asc" ? r : -r;
     });
   }, [items, query, status, category, sort]);
+
+  const pages = Math.max(1, Math.ceil(rows.length / size));
+  const current = Math.min(page, pages);
+  const start = (current - 1) * size;
+  const view = rows.slice(start, start + size);
 
   async function save(data) {
     if (editing === "new") {
@@ -115,10 +123,10 @@ export default function App() {
       <header className="topbar">
         <div className="topbar-inner">
           <div className="brand">
-            <span className="logo"><Icon name="box" size={20} /></span>
+            <span className="logo"><Icon name="box" size={22} /></span>
             <div>
               <strong>Stockroom</strong>
-              <small>Warehouse Inventory Management</small>
+              <small>Warehouse inventory system</small>
             </div>
           </div>
           <button className="btn btn-primary" onClick={() => setEditing("new")}>
@@ -155,7 +163,7 @@ export default function App() {
           <div className="banner" role="alert">
             <Icon name="alert" />
             <p>
-              <strong>{attention.length} {attention.length === 1 ? "item needs" : "items need"} restocking.</strong>{" "}
+              Restock required: {attention.length} {attention.length === 1 ? "item is" : "items are"} at or below reorder level.{" "}
               {attention.slice(0, 3).map((i) => i.name).join(", ")}
               {attention.length > 3 && ` and ${attention.length - 3} more`}
             </p>
@@ -169,7 +177,7 @@ export default function App() {
           <div className="toolbar">
             <div className="search">
               <Icon name="search" size={16} />
-              <input type="search" placeholder="Search name, SKU, category or location" value={query} onChange={(e) => setQuery(e.target.value)} />
+              <input type="search" placeholder="Search SKU, item, category or location" value={query} onChange={(e) => setQuery(e.target.value)} />
             </div>
             <select value={category} onChange={(e) => setCategory(e.target.value)} aria-label="Category">
               <option value="all">All categories</option>
@@ -196,8 +204,8 @@ export default function App() {
               <table>
                 <thead>
                   <tr>
-                    <Th k="name">Item</Th>
                     <Th k="sku">SKU</Th>
+                    <Th k="name">Item</Th>
                     <th>Location</th>
                     <Th k="quantity" num>Stock level</Th>
                     <Th k="lowStockThreshold" num>Reorder at</Th>
@@ -207,18 +215,20 @@ export default function App() {
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((item) => {
+                  {view.map((item) => {
                     const s = statusOf(item);
                     const pct = Math.min(100, Math.round((item.quantity / Math.max(1, item.lowStockThreshold * 3)) * 100));
                     return (
-                      <tr key={item._id}>
-                        <td>
-                          <div className="item-name">{item.name}</div>
-                          <div className="item-cat">{item.category}</div>
+                      <tr key={item._id} className={s}>
+                        <td className="mono" data-label="SKU">{item.sku}</td>
+                        <td data-label="Item">
+                          <div>
+                            <div className="item-name">{item.name}</div>
+                            <div className="item-cat">{item.category}</div>
+                          </div>
                         </td>
-                        <td className="mono">{item.sku}</td>
-                        <td>{item.location || "-"}</td>
-                        <td className="num">
+                        <td className="mono" data-label="Location">{item.location || "-"}</td>
+                        <td className="num" data-label="Stock level">
                           <div className="stock">
                             <button className="step" aria-label={`Remove one ${item.name}`} onClick={() => nudge(item, -1)} disabled={item.quantity === 0}>-</button>
                             <div className="stock-main">
@@ -228,10 +238,10 @@ export default function App() {
                             <button className="step" aria-label={`Add one ${item.name}`} onClick={() => nudge(item, 1)}>+</button>
                           </div>
                         </td>
-                        <td className="num">{item.lowStockThreshold}</td>
-                        <td><span className={`badge ${s}`}>{LABEL[s]}</span></td>
-                        <td className="muted">{ago(item.updatedAt)}</td>
-                        <td>
+                        <td className="num mono" data-label="Reorder at">{item.lowStockThreshold}</td>
+                        <td data-label="Status"><span className={`badge ${s}`}>{LABEL[s]}</span></td>
+                        <td className="muted" data-label="Updated">{ago(item.updatedAt)}</td>
+                        <td data-label="Actions">
                           <div className="actions">
                             <button className="icon-btn" aria-label={`Edit ${item.name}`} onClick={() => setEditing(item)}><Icon name="edit" size={16} /></button>
                             <button className="icon-btn danger" aria-label={`Delete ${item.name}`} onClick={() => setConfirm(item)}><Icon name="trash" size={16} /></button>
@@ -244,7 +254,20 @@ export default function App() {
               </table>
             </div>
           )}
-          {!loading && rows.length > 0 && <p className="footnote">Showing {rows.length} of {items.length} items</p>}
+
+          {!loading && rows.length > 0 && (
+            <div className="pager">
+              <span>Showing {start + 1}-{Math.min(start + size, rows.length)} of {rows.length} items</span>
+              <div>
+                <select value={size} onChange={(e) => setSize(Number(e.target.value))} aria-label="Rows per page">
+                  {[10, 25, 50].map((n) => <option key={n} value={n}>{n} per page</option>)}
+                </select>
+                <button className="btn btn-small" disabled={current <= 1} onClick={() => setPage(current - 1)}>Prev</button>
+                <span>Page {current} / {pages}</span>
+                <button className="btn btn-small" disabled={current >= pages} onClick={() => setPage(current + 1)}>Next</button>
+              </div>
+            </div>
+          )}
         </section>
       </main>
 
